@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+pydantic
+pydantic-settings
+python-multipart
+openai
+jinja2
+weasyprint
+resend
+python-dotenv

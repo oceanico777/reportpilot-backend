@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 origins = [
     "http://localhost:5173",
     "http://localhost:3000",
+    "https://reportpilot-frontend.vercel.app",
 ]
 
 app.add_middleware(

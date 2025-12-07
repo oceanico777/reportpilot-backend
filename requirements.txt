@@ -10,3 +10,4 @@ jinja2
 weasyprint
 resend
 python-dotenv
+gunicorn

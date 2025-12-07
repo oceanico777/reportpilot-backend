@@ -10,3 +10,5 @@ jinja2
 resend
 python-dotenv
 gunicorn
+python-jose[cryptography]
+

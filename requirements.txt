@@ -11,4 +11,7 @@ resend
 python-dotenv
 gunicorn
 python-jose[cryptography]
+pytesseract
+Pillow
+
 

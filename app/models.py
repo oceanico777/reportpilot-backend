@@ -74,6 +74,7 @@ class Report(Base):
     month = Column(Integer)
     year = Column(Integer)
     summary_text = Column(Text)
+    source_file_path = Column(String)
     file_url = Column(String)
     status = Column(String, default=ReportStatus.DRAFT.value)
     created_at = Column(DateTime, default=datetime.utcnow)

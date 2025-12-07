@@ -69,6 +69,7 @@ class ReportBase(BaseModel):
 
 class ReportCreate(ReportBase):
     company_id: str
+    source_file_path: Optional[str] = None
 
 class Report(ReportBase):
     id: str

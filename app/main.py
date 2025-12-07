@@ -5,6 +5,11 @@ from .routers import receipts, reports, auth
 # Create tables
 Base.metadata.create_all(bind=engine)
 
+import os
+UPLOAD_DIR = "uploads"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
 app = FastAPI(
     title="ReportPilot AI API",
     description="Automated Receipt Processing & Reporting API",
@@ -17,6 +22,7 @@ origins = [
     "http://localhost:5173",
     "http://localhost:3000",
     "https://reportpilot-frontend.vercel.app",
+    "https://reportpilot-frontend-8g9q033ks-oceanicos-projects-d2fe019f.vercel.app",
 ]
 
 app.add_middleware(

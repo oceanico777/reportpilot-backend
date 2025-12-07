@@ -21,6 +21,7 @@ def generate_report(
         company_id=report_request.company_id,
         month=report_request.month,
         year=report_request.year,
+        source_file_path=report_request.source_file_path,
         status=models.ReportStatus.DRAFT.value
     )
     db.add(db_report)
@@ -31,6 +32,25 @@ def generate_report(
     background_tasks.add_task(report_generator.create_report, db_report.id, db)
     
     return db_report
+
+from fastapi import UploadFile, File
+import shutil
+import os
+import uuid
+
+@router.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    if not file.filename.endswith(('.csv', '.pdf')):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only CSV and PDF are allowed.")
+    
+    file_extension = os.path.splitext(file.filename)[1]
+    file_name = f"{uuid.uuid4()}{file_extension}"
+    file_path = os.path.join("uploads", file_name)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    return {"file_path": file_path, "filename": file.filename}
 
 @router.get("/", response_model=List[schemas.Report])
 def read_reports(

@@ -40,3 +40,7 @@ app.include_router(reports.router, prefix="/reports", tags=["Reports"])
 @app.get("/")
 def read_root():
     return {"message": "Welcome to ReportPilot AI API"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}

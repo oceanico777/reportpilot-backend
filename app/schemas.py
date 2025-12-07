@@ -25,7 +25,7 @@ class User(UserBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Receipt Schemas
 class ParsedDataBase(BaseModel):
@@ -44,7 +44,7 @@ class ParsedData(ParsedDataBase):
     receipt_id: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ReceiptBase(BaseModel):
     file_url: str
@@ -60,7 +60,7 @@ class Receipt(ReceiptBase):
     parsed_data: Optional[ParsedData] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Report Schemas
 class ReportBase(BaseModel):
@@ -80,4 +80,4 @@ class Report(ReportBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True

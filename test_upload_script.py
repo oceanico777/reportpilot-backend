@@ -30,6 +30,19 @@ def test_upload_pdf():
     except Exception as e:
         print(f"❌ PDF Upload Error: {e}")
 
+def test_upload_jpg():
+    print("\nTesting JPG Upload...")
+    files = {'file': ('test.jpg', b'\xff\xd8\xff...', 'image/jpeg')}
+    try:
+        response = requests.post(UPLOAD_URL, files=files)
+        if response.status_code == 200:
+            print("✅ JPG Upload Success")
+            print(response.json())
+        else:
+            print(f"❌ JPG Upload Failed: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"❌ JPG Upload Error: {e}")
+
 def test_upload_invalid():
     print("\nTesting Invalid File Upload (TXT)...")
     files = {'file': ('test.txt', b'Just some text', 'text/plain')}
@@ -50,6 +63,7 @@ if __name__ == "__main__":
         requests.get(BASE_URL)
         test_upload_csv()
         test_upload_pdf()
+        test_upload_jpg()
         test_upload_invalid()
     except requests.exceptions.ConnectionError:
         print("❌ Backend server is not running on http://localhost:8000")

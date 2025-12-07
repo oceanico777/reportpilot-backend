@@ -40,8 +40,8 @@ import uuid
 
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    if not file.filename.endswith(('.csv', '.pdf')):
-        raise HTTPException(status_code=400, detail="Invalid file type. Only CSV and PDF are allowed.")
+    if not file.filename.endswith(('.csv', '.pdf', '.jpg', '.jpeg')):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only CSV, PDF, and JPG are allowed.")
     
     file_extension = os.path.splitext(file.filename)[1]
     file_name = f"{uuid.uuid4()}{file_extension}"

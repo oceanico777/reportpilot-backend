@@ -4,9 +4,26 @@ import time
 
 import pytesseract
 from PIL import Image
+from pypdf import PdfReader
 import magic
 import os
 import io
+import platform
+
+# Set Tesseract path for Windows
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+def extract_text_from_pdf(content: bytes) -> str:
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        print(f"Error extracting text from PDF: {e}")
+        return ""
 
 def process_text_with_llm(text: str):
     # Placeholder for LLM processing
@@ -45,12 +62,7 @@ def create_report(report_id: str, db: Session):
 
         # 3. Extract Text
         if file_type == 'application/pdf':
-            # Placeholder for PDF
-            # text_data = extract_text_from_pdf(contents)
-            report.status = models.ReportStatus.FAILED.value
-            report.summary_text = "PDF processing not yet implemented."
-            db.commit()
-            return
+            text_data = extract_text_from_pdf(contents)
 
         elif file_type == 'text/csv' or file_type == 'text/plain':
             text_data = contents.decode('utf-8')

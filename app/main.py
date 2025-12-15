@@ -25,9 +25,15 @@ origins = [
     "https://reportpilot-frontend-8g9q033ks-oceanicos-projects-d2fe019f.vercel.app",
 ]
 
+# Allow all Vercel preview deployments
+import re
+def is_vercel_domain(origin):
+    return re.match(r"https://.*\.vercel\.app$", origin) is not None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

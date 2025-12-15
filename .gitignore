@@ -1,0 +1,11 @@
+﻿# Entorno virtual
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Base de datos local
+reportpilot.db
+
+# Archivos de configuración local
+.env

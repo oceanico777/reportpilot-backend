@@ -43,15 +43,17 @@ def seed():
         {
             "name": "Tour a Monserrate",
             "expenses": [
-                ("Teleférico Tiquetes", 29000, "Transporte"),
+                ("💰 Anticipo de Caja", 300000, "ANTICIPO_RECIBIDO"), # Advance!
+                ("Teleférico Tiquetes", 29000, "📦 Otros"),
                 ("Guía Privado", 80000, "Atractivos"),
                 ("Refrigerio Tamal", 35000, "Comida"),
-                ("Transporte Hotel-Cerro", 45000, "Transporte")
+                ("Transporte Hotel-Cerro", 45000, "📦 Otros")
             ]
         },
         {
             "name": "Tour La Candelaria",
             "expenses": [
+                ("💰 Anticipo de Caja", 250000, "ANTICIPO_RECIBIDO"),
                 ("Entrada Museo Oro", 5000, "Atractivos"),
                 ("Guía Histórico", 120000, "Atractivos"),
                 ("Chicha en el Chorro", 15000, "Snacks"),
@@ -61,15 +63,19 @@ def seed():
         {
             "name": "Tour de Graffiti",
             "expenses": [
+                 ("💰 Anticipo de Caja", 400000, "ANTICIPO_RECIBIDO"),
+                 ("💵 Venta Souvenir", 50000, "RECAUDO_CLIENTE"), # New!
                 ("Aporte Artista Local", 50000, "Atractivos"),
                 ("Guía Urbano", 90000, "Atractivos"),
-                ("Kit de Aerosoles Taller", 60000, "Snacks"), # Keeping loosely as snacks/supplies or just Atractivos? sticking to user request 'Snacks' might be weird for aerosols but ok, lets use 'Insumos' or just 'Atractivos' for simplicity? User asked for 'Snacks'. Let's use 'Materiales' for aerosols and 'Snacks' for food.
+                ("Kit de Aerosoles Taller", 60000, "Materiales"), 
                 ("Refrigerio Frutas", 20000, "Snacks")
             ]
         },
         {
             "name": "Cata de Café",
             "expenses": [
+                ("💰 Anticipo de Caja", 350000, "ANTICIPO_RECIBIDO"),
+                ("💵 Venta Café Grano", 120000, "RECAUDO_CLIENTE"), # New!
                 ("Experiencia Barista", 150000, "Atractivos"),
                 ("Muestras de Café", 80000, "Snacks"),
                 ("Maridaje Postres", 40000, "Snacks"),
@@ -79,17 +85,17 @@ def seed():
         {
             "name": "Tour Centro Histórico",
              "expenses": [
+                ("💰 Recarga Anticipo", 150000, "ANTICIPO_RECIBIDO"),
+                ("💵 Upgrade Privado", 80000, "RECAUDO_CLIENTE"), # New!
                 ("Entrada Museo Botero", 0, "Atractivos"),
                 ("Guía Cultural", 100000, "Atractivos"),
                 ("Oblea callejera", 12000, "Snacks"),
-                ("Taxi Regreso", 25000, "Transporte")
+                ("Taxi Regreso", 25000, "📦 Otros")
             ]
         }
     ]
 
     # 3. Generate History (Last 3 months)
-    # Create multiple instances of each tour to get good averages
-    
     reports_created = 0
 
     for _ in range(3): # Simulate 3 months of activity
@@ -103,10 +109,19 @@ def seed():
                 
                 # Create expenses for this specific tour instance
                 for item_name, base_price, category in tour["expenses"]:
-                    # Add some variance to price (+- 10%)
-                    variance = random.uniform(0.9, 1.1)
-                    final_price = round(base_price * variance, -2) # Round to nearest 100
-                    
+                    # Advances/Collections usually rounded and specific
+                    if category == "ANTICIPO_RECIBIDO":
+                        final_price = base_price
+                        vendor_name = "Tesorería Agencia"
+                    elif category == "RECAUDO_CLIENTE":
+                        final_price = base_price
+                        vendor_name = "Cliente Directo"
+                    else:
+                        # Add some variance to price (+- 10%)
+                        variance = random.uniform(0.9, 1.1)
+                        final_price = round(base_price * variance, -2) # Round to nearest 100
+                        vendor_name = f"Proveedor {item_name.split()[0]}"
+
                     report = models.Report(
                         id=str(uuid.uuid4()),
                         company_id=cid,
@@ -114,7 +129,7 @@ def seed():
                         year=tour_date.year,
                         tour_id=tour["name"], # Grouping ID
                         client_name=f"Familia {random.choice(['González', 'Smith', 'Pérez', 'Müller', 'Takahashi'])}",
-                        vendor=f"Proveedor {item_name.split()[0]}", # Fake vendor
+                        vendor=vendor_name,
                         amount=final_price,
                         currency="COP",
                         category=category,
@@ -126,7 +141,7 @@ def seed():
                     reports_created += 1
 
     db.commit()
-    print(f"✅ Successfully seeded {reports_created} reports!")
+    print(f"✅ Successfully seeded {reports_created} reports (Includes ANTICIPOS)!")
     print("   Refresh the app to see the data.")
 
 if __name__ == "__main__":

@@ -1,13 +1,15 @@
-from app.database import SessionLocal
-from app import models
-import sys
+import sqlite3
 import os
 
-print(f"Check script running from: {os.getcwd()}")
-db = SessionLocal()
-count = db.query(models.Report).count()
-print(f"Total Reports in DB: {count}")
-
-reports = db.query(models.Report).limit(5).all()
-for r in reports:
-    print(f"- {r.tour_id}: {r.category} ({r.amount})")
+db_path = "v2.db"
+if os.path.exists(db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, vendor, amount, category, status FROM reports ORDER BY created_at DESC LIMIT 5;")
+    rows = cursor.fetchall()
+    print("Last 5 reports:")
+    for row in rows:
+        print(row)
+    conn.close()
+else:
+    print(f"DB {db_path} not found")

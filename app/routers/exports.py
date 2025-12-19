@@ -7,14 +7,20 @@ import io
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from weasyprint import HTML, CSS
+try:
+    from weasyprint import HTML, CSS
+except OSError:
+    # WeasyPrint requires GTK libraries. If missing, PDF export will fail but app should load.
+    HTML = None
+    CSS = None
+    print("Warning: WeasyPrint (GTK) not found. PDF export disabled.")
 from jinja2 import Template
 
-from app.database import get_db
-from app import models
-from app.auth import get_current_user
+from ..database import get_db
+from .. import models
+from ..auth import get_current_user
 
-router = APIRouter(prefix="/exports", tags=["exports"])
+router = APIRouter()
 
 # --- HTML TEMPLATE FOR PDF ---
 PDF_TEMPLATE = """
@@ -77,16 +83,19 @@ PDF_TEMPLATE = """
 def format_currency(amount):
     return "${:,.0f}".format(amount).replace(",", ".")
 
+from ..auth import get_current_user, get_user_company
+
 @router.get("/gastos")
 def export_gastos(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     format: str = Query(..., regex="^(pdf|xlsx)$"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    company_id: str = Depends(get_user_company)
 ):
-    # 1. Query Data
-    query = db.query(models.Report).filter(models.Report.company_id == current_user["company_id"])
+    # 1. Query Data Scoped to Company
+    query = db.query(models.Report).filter(models.Report.company_id == company_id)
     
     if start_date:
         query = query.filter(models.Report.created_at >= start_date)

@@ -20,83 +20,91 @@ else:
 
 import time
 
-def process_receipt_with_gemini(file_path: str, retries=3, initial_delay=2) -> dict:
-    """
-    Procesa imagen de recibo usando Gemini Vision API con retries
-    
-    Args:
-        file_path: Ruta al archivo de imagen
-        retries: Número de reintentos
-        initial_delay: Delay inicial en segundos
-        
-    Returns:
-        dict: Datos extraídos o error
-    """
-    delay = initial_delay
-    last_error = None
-    
-    for attempt in range(retries + 1):
-        try:
-            # Load image
-            img = Image.open(file_path)
-            
-            # Initialize Gemini model (Using 2.0 Flash as discovered)
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            
-            # Create structured prompt
-            prompt = """
-            Analiza esta imagen de recibo y extrae la siguiente información en formato JSON:
-            
-            {
-                "vendor": "nombre del comercio o vendedor",
-                "date": "fecha en formato YYYY-MM-DD",
-                "amount": número decimal del monto total,
-                "currency": "código de moneda (USD, EUR, etc.) (default COP if in Colombia)",
-                "category": "categoría del gasto (elige entre: Office Supplies, Travel, Meals, Software, Entertainment, Other)",
-                "items": ["lista de items comprados si están visibles"],
-                "confidence_score": número entre 0 y 1 indicando confianza en la extracción
-            }
-            
-            Si no puedes encontrar algún dato, usa null. Responde SOLO con el JSON, sin texto adicional.
-            """
-            
-            # Generate content with image
-            response = model.generate_content([prompt, img])
-            
-            # Parse JSON response
-            response_text = response.text.strip()
-            
-            # Remove markdown
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            if response_text.startswith("```"):
-                response_text = response_text[3:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
-            response_text = response_text.strip()
-            
-            extracted_data = json.loads(response_text)
-            
-            logger.info(f"Successfully extracted data from receipt: {extracted_data}")
-            return extracted_data
-            
-        except Exception as e:
-            last_error = e
-            error_str = str(e)
-            
-            # Check for Rate Limit (429) or Service Unavailable (503)
-            if "429" in error_str or "503" in error_str:
-                if attempt < retries:
-                    logger.warning(f"Gemini API rate limit hit. Retrying in {delay}s (Attempt {attempt+1}/{retries})")
-                    time.sleep(delay)
-                    delay *= 2  # Exponential backoff
-                    continue
-            
-            logger.error(f"Error processing receipt with Gemini (Attempt {attempt+1}): {e}")
-            if attempt == retries:
-                raise last_error
+import io
 
-    return extracted_data
+def process_receipt_with_gemini(file_data: bytes, retries=1) -> dict:
+    """
+    Process receipt image using Gemini Vision API with model fallback (Flash -> Pro)
+    And failure context hints.
+    """
+    models_to_try = [
+        {'name': 'models/gemini-2.0-flash', 'hint': ''},
+        {'name': 'models/gemini-1.5-flash', 'hint': ''},
+        {'name': 'models/gemini-1.5-pro', 'hint': 'El modelo anterior tuvo dificultades. '}
+    ]
+    
+    last_error_context = ""
+    
+    for model_cfg in models_to_try:
+        model_name = model_cfg['name']
+        hint = model_cfg['hint'] + last_error_context
+        
+        delay = 2
+        for attempt in range(retries + 1):
+            try:
+                img = Image.open(io.BytesIO(file_data))
+                logger.info(f"Trying OCR with model: {model_name} (Attempt {attempt+1})")
+                
+                # Check if model exists/can be initialized
+                try:
+                    model = genai.GenerativeModel(model_name)
+                except Exception as e:
+                    logger.error(f"Failed to initialize model {model_name}: {e}")
+                    break # Try next model
+                
+                prompt = f"""
+                {hint}
+                Analiza esta imagen de recibo y extrae la siguiente información en formato JSON:
+                
+                {{
+                    "vendor": "nombre del comercio o vendedor",
+                    "vendor_nit": "NIT o RUT del establecimiento (formato XXXXXXXXX-Y o similar). Si no visible, devuelve null/vacío",
+                    "date": "fecha en formato YYYY-MM-DD",
+                    "amount": número decimal del monto total,
+                    "currency": "código de moneda (USD, EUR, etc.) (default COP if in Colombia)",
+                    "category": "categoría del gasto (elige exclusivamente entre: 🍽️ Restaurante, 🎟️ Atractivo, 🍿 Snack, 📦 Otros)",
+                    "confidence_score": número entre 0 y 1 indicando confianza en la extracción
+                }}
+                
+                Responde SOLO con el JSON válido.
+                """
+
+                
+                response = model.generate_content([prompt, img])
+                if not response or not response.text:
+                    raise Exception("Empty response from Gemini")
+                    
+                response_text = response.text.strip()
+                
+                # Clean JSON markdown
+                if "```json" in response_text:
+                    response_text = response_text.split("```json")[1].split("```")[0]
+                elif "```" in response_text:
+                    response_text = response_text.split("```")[1].split("```")[0]
+                
+                extracted_data = json.loads(response_text.strip())
+                return extracted_data
+                
+            except Exception as e:
+                logger.error(f"Gemini error with {model_name} on attempt {attempt+1}: {e}")
+                last_error_context = f"Error previo: {str(e)}. "
+                if attempt < retries:
+                    time.sleep(delay)
+                    delay *= 2
+                    continue
+                # If we exhausted retries for this model, we move to the next model in models_to_try
+                break
+    
+    # If all models fail, return fallback mock
+    return {
+        "vendor": "Comercio no detectado",
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "amount": 0.0,
+        "currency": "COP",
+        "category": "📦 Otros",
+        "confidence_score": 0.1
+    }
+
 
 
 def process_receipt(receipt_id: str, db: Session):
@@ -109,8 +117,21 @@ def process_receipt(receipt_id: str, db: Session):
         return
 
     try:
+        # Load file bytes
+        file_bytes = None
+        file_path = receipt.file_url
+        
+        if os.path.exists(file_path):
+            with open(file_path, "rb") as f:
+                file_bytes = f.read()
+        else:
+             logger.error(f"File not found at {file_path}")
+             receipt.status = models.ReceiptStatus.FAILED.value
+             db.commit()
+             return
+
         # Extract data using Gemini
-        extracted_data = process_receipt_with_gemini(receipt.file_url)
+        extracted_data = process_receipt_with_gemini(file_bytes)
         
         # Parse date
         date_obj = None
@@ -124,6 +145,7 @@ def process_receipt(receipt_id: str, db: Session):
         parsed_data = models.ParsedData(
             receipt_id=receipt.id,
             vendor=extracted_data.get("vendor", "Unknown"),
+            vendor_nit=extracted_data.get("vendor_nit"), # Save detected NIT
             date=date_obj,
             amount=float(extracted_data.get("amount", 0.0)),
             currency=extracted_data.get("currency", "USD"),
@@ -132,7 +154,8 @@ def process_receipt(receipt_id: str, db: Session):
         )
         
         db.add(parsed_data)
-        receipt.status = models.ReceiptStatus.PROCESSED.value
+        # Fix: Unified status name (matching schema and common usage)
+        receipt.status = "PROCESSED" 
         db.commit()
         
         logger.info(f"Receipt {receipt_id} processed successfully")

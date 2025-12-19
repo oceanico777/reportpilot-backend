@@ -6,12 +6,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Use a default SQLite URL for local dev if SUPABASE_URL is not set, or prompt user to set it.
-# For this MVP generation, we'll default to SQLite to ensure it runs immediately without config.
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./reportpilot.db")
+# Database configuration
+# In production (Render/Heroku/etc), DATABASE_URL will be set.
+# For PostgreSQL on Render, we need to ensure the URI starts with postgresql://
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./reportpilot.db")
+
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+SQLALCHEMY_DATABASE_URL = DATABASE_URL
 
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {}
+    SQLALCHEMY_DATABASE_URL, 
+    connect_args={"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {}
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

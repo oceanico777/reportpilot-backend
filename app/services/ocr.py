@@ -42,10 +42,13 @@ def process_receipt_with_gemini(file_data: bytes, retries=1) -> dict:
 
     # 2. MODELS TO TRY (Robust naming)
     models_to_try = [
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
         'gemini-1.5-flash',
+        'models/gemini-2.5-flash',
+        'models/gemini-2.0-flash',
         'models/gemini-1.5-flash',
-        'gemini-1.5-pro',
-        'models/gemini-1.5-pro'
+        'gemini-flash-latest'
     ]
     
     for model_name in models_to_try:

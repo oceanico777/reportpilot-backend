@@ -113,19 +113,26 @@ def process_receipt_with_gemini(file_data: bytes, retries=1) -> dict:
 
 
 
-def process_receipt(receipt_id: str, db: Session):
+def process_receipt(receipt_id: str):
     """
     Process receipt using Gemini Vision API (background task)
     """
+    from ..database import SessionLocal
+    db = SessionLocal()
+    
+    logger.info(f"--- START OCR TASK for {receipt_id} ---")
+    
     receipt = db.query(models.Receipt).filter(models.Receipt.id == receipt_id).first()
     if not receipt:
         logger.error(f"Receipt {receipt_id} not found")
+        db.close()
         return
 
     # 1. Update status to PROCESSING immediately
     try:
         receipt.status = "PROCESSING"
         db.commit()
+        logger.info(f"Status set to PROCESSING for {receipt_id}")
     except Exception as e:
         logger.error(f"Failed to set initial status for {receipt_id}: {e}")
 
@@ -175,3 +182,5 @@ def process_receipt(receipt_id: str, db: Session):
         logger.error(f"Critical error processing receipt {receipt_id}: {e}")
         receipt.status = "FAILED"
         db.commit()
+    finally:
+        db.close()

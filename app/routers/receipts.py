@@ -56,8 +56,8 @@ def upload_receipt(
     db.refresh(db_receipt)
     
     # 5. Trigger OCR (Background)
-    # The OCR service will use the local_path for speed, but cloud_path is stored for permanence
-    background_tasks.add_task(ocr.process_receipt, db_receipt.id, db)
+    # Important: We ONLY pass the ID, the task will create its own DB session
+    background_tasks.add_task(ocr.process_receipt, db_receipt.id)
     
     return db_receipt
 

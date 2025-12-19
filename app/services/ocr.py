@@ -24,50 +24,57 @@ import io
 
 def process_receipt_with_gemini(file_data: bytes, retries=1) -> dict:
     """
-    Process receipt image using Gemini Vision API with model fallback (Flash -> Pro)
-    And failure context hints.
+    Process receipt image using Gemini Vision API with model fallback.
+    Includes image resizing to save memory on Render.
     """
+    # 1. OPTIMIZE IMAGE (Resize if large to save RAM on Render)
+    try:
+        img = Image.open(io.BytesIO(file_data))
+        # Max dimension 1024px is plenty for OCR and saves tons of RAM
+        if max(img.size) > 1024:
+            img.thumbnail((1024, 1024))
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format=img.format or 'JPEG')
+            file_data = img_byte_arr.getvalue()
+            logger.info(f"Resized image to {img.size} for memory efficiency")
+    except Exception as e:
+        logger.warning(f"Could not resize image: {e}")
+
+    # 2. MODELS TO TRY (Robust naming)
     models_to_try = [
-        {'name': 'gemini-1.5-flash', 'hint': ''},
-        {'name': 'gemini-1.5-pro', 'hint': 'El modelo anterior tuvo dificultades. '}
+        'gemini-1.5-flash',
+        'models/gemini-1.5-flash',
+        'gemini-1.5-pro',
+        'models/gemini-1.5-pro'
     ]
     
-    last_error_context = ""
-    
-    for model_cfg in models_to_try:
-        model_name = model_cfg['name']
-        hint = model_cfg['hint'] + last_error_context
-        
+    for model_name in models_to_try:
         delay = 2
         for attempt in range(retries + 1):
             try:
+                # Re-open image for each attempt to be safe
                 img = Image.open(io.BytesIO(file_data))
                 logger.info(f"Trying OCR with model: {model_name} (Attempt {attempt+1})")
                 
-                # Check if model exists/can be initialized
-                try:
-                    model = genai.GenerativeModel(model_name)
-                except Exception as e:
-                    logger.error(f"Failed to initialize model {model_name}: {e}")
-                    break # Try next model
+                model = genai.GenerativeModel(model_name)
                 
-                prompt = f"""
-                {hint}
+                prompt = """
                 Analiza esta imagen de recibo y extrae la siguiente información en formato JSON:
                 
-                {{
+                {
                     "vendor": "nombre del comercio o vendedor",
-                    "vendor_nit": "NIT o RUT del establecimiento (formato XXXXXXXXX-Y o similar). Si no visible, devuelve null/vacío",
+                    "vendor_nit": "NIT o RUT del comercio si existe",
                     "date": "fecha en formato YYYY-MM-DD",
-                    "amount": número decimal del monto total,
-                    "currency": "código de moneda (USD, EUR, etc.) (default COP if in Colombia)",
-                    "category": "categoría del gasto (elige exclusivamente entre: 🍽️ Restaurante, 🎟️ Atractivo, 🍿 Snack, 📦 Otros)",
-                    "confidence_score": número entre 0 y 1 indicando confianza en la extracción
-                }}
+                    "amount": 1234.56,
+                    "currency": "COP",
+                    "category": "una de estas: Alimentación, Transporte, Alojamiento, Otros",
+                    "confidence_score": 0.95
+                }
                 
-                Responde SOLO con el JSON válido.
+                Solo responde con el objeto JSON puro, sin markdown ni explicaciones.
+                Si no detectas el comercio, usa "Comercio no detectado".
+                Si no detectas el monto, usa 0.
                 """
-
                 
                 response = model.generate_content([prompt, img])
                 if not response or not response.text:

@@ -28,9 +28,8 @@ def process_receipt_with_gemini(file_data: bytes, retries=1) -> dict:
     And failure context hints.
     """
     models_to_try = [
-        {'name': 'models/gemini-2.0-flash', 'hint': ''},
-        {'name': 'models/gemini-1.5-flash', 'hint': ''},
-        {'name': 'models/gemini-1.5-pro', 'hint': 'El modelo anterior tuvo dificultades. '}
+        {'name': 'gemini-1.5-flash', 'hint': ''},
+        {'name': 'gemini-1.5-pro', 'hint': 'El modelo anterior tuvo dificultades. '}
     ]
     
     last_error_context = ""

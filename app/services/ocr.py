@@ -42,13 +42,10 @@ def process_receipt_with_gemini(file_data: bytes, retries=1) -> dict:
 
     # 2. MODELS TO TRY (Robust naming)
     models_to_try = [
-        'gemini-2.5-flash',
         'gemini-2.0-flash',
+        'gemini-flash-latest',
         'gemini-1.5-flash',
-        'models/gemini-2.5-flash',
-        'models/gemini-2.0-flash',
-        'models/gemini-1.5-flash',
-        'gemini-flash-latest'
+        'gemini-pro-latest'
     ]
     
     for model_name in models_to_try:
@@ -125,6 +122,13 @@ def process_receipt(receipt_id: str, db: Session):
         logger.error(f"Receipt {receipt_id} not found")
         return
 
+    # 1. Update status to PROCESSING immediately
+    try:
+        receipt.status = "PROCESSING"
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to set initial status for {receipt_id}: {e}")
+
     try:
         # Load file bytes
         file_bytes = None
@@ -134,42 +138,40 @@ def process_receipt(receipt_id: str, db: Session):
             with open(file_path, "rb") as f:
                 file_bytes = f.read()
         else:
-             logger.error(f"File not found at {file_path}")
-             receipt.status = models.ReceiptStatus.FAILED.value
+             # Try signed URL if local file is missing (e.g. cloud only)
+             logger.warning(f"Local file not found at {file_path}, can only process if local path is correct.")
+             receipt.status = "FAILED"
              db.commit()
              return
 
-        # Extract data using Gemini
+        # 2. Extract data using Gemini (Optimized model list)
         extracted_data = process_receipt_with_gemini(file_bytes)
         
-        # Parse date
+        # 3. Parse and save result
         date_obj = None
         if extracted_data.get("date"):
             try:
                 date_obj = datetime.strptime(extracted_data["date"], "%Y-%m-%d").date()
-            except ValueError:
-                logger.warning(f"Invalid date format: {extracted_data['date']}")
+            except Exception:
+                pass
         
-        # Create ParsedData record
         parsed_data = models.ParsedData(
             receipt_id=receipt.id,
-            vendor=extracted_data.get("vendor", "Unknown"),
-            vendor_nit=extracted_data.get("vendor_nit"), # Save detected NIT
+            vendor=extracted_data.get("vendor", "Comercio no detectado"),
+            vendor_nit=extracted_data.get("vendor_nit"),
             date=date_obj,
             amount=float(extracted_data.get("amount", 0.0)),
-            currency=extracted_data.get("currency", "USD"),
-            category=extracted_data.get("category", "Other"),
+            currency=extracted_data.get("currency", "COP"),
+            category=extracted_data.get("category", "📦 Otros"),
             confidence_score=float(extracted_data.get("confidence_score", 0.0))
         )
         
         db.add(parsed_data)
-        # Fix: Unified status name (matching schema and common usage)
         receipt.status = "PROCESSED" 
         db.commit()
-        
-        logger.info(f"Receipt {receipt_id} processed successfully")
+        logger.info(f"Receipt {receipt_id} PROCESSED successfully")
         
     except Exception as e:
-        logger.error(f"Failed to process receipt {receipt_id}: {e}")
-        receipt.status = models.ReceiptStatus.FAILED.value
+        logger.error(f"Critical error processing receipt {receipt_id}: {e}")
+        receipt.status = "FAILED"
         db.commit()

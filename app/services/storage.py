@@ -27,7 +27,17 @@ class SupabaseStorageService:
         Structure: {company_id}/{year}/{month}/{timestamp}_{filename}
         """
         if not self.client:
-            raise HTTPException(status_code=500, detail="Storage service not configured")
+            # DEV MOCK: Return local/mock path if storage not configured
+            timestamp = int(time.time())
+            filename = "".join(c for c in file.filename if c.isalnum() or c in "._-")
+            mock_path = f"mock/{company_id}/{timestamp}_{filename}"
+            return {
+                "storage_path": mock_path,
+                "bucket": self.bucket,
+                "filename": filename,
+                "content_type": file.content_type,
+                "size": 0
+            }
 
         # Determine which client to use (Anon/Service or User Scoped)
         active_client = self.client
@@ -177,6 +187,19 @@ class SupabaseStorageService:
         except Exception as e:
             logger.error(f"Failed to generate signed URL: {str(e)}")
             return ""
+
+    def download_file(self, file_path: str) -> bytes:
+        """Downloads a file from storage and returns bytes"""
+        if not self.client:
+            return None
+        try:
+            # Supabase Python client download
+            # StorageObject.download returns bytes
+            content = self.client.storage.from_(self.bucket).download(file_path)
+            return content
+        except Exception as e:
+            logger.error(f"Failed to download file from Supabase: {str(e)}")
+            return None
 
     def delete_file(self, file_path: str) -> bool:
         """Deletes a file from storage"""

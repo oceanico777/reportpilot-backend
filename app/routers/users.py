@@ -30,13 +30,13 @@ def join_organization(
         db_user = models.User(
             id=user_id,
             email=current_user["email"],
-            role=models.UserRole.GUIDE.value # Joining users are Guides by default
+            role=models.UserRole.STAFF.value # Joining users are Staff by default
         )
         db.add(db_user)
         
     # Update Membership
     db_user.company_id = company.id
-    db_user.role = models.UserRole.GUIDE.value # Ensure they become Guide
+    db_user.role = models.UserRole.STAFF.value # Ensure they become Staff
     
     db.commit()
     return {"status": "success", "company_name": company.name}
@@ -116,3 +116,48 @@ def deactivate_member(
     
     db.commit()
     return {"status": "success"}
+
+@router.post("/admin/users")
+def create_user_manual(
+    user_data: schemas.UserCreateAdmin,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    company_id: str = Depends(get_user_company)
+):
+    """
+    Manually provision a user. 
+    Useful if invite codes are not desired.
+    User will claim this account upon first login/signup with matching email.
+    """
+    # 1. Verify Admin
+    admin_user = db.query(models.User).filter(models.User.id == current_user["id"]).first()
+    if not admin_user or admin_user.role != models.UserRole.ADMIN.value:
+         raise HTTPException(status_code=403, detail="Admin access required")
+         
+    # 2. Check if user exists
+    existing_user = db.query(models.User).filter(models.User.email == user_data.email).first()
+    if existing_user:
+        if existing_user.company_id == company_id:
+            raise HTTPException(status_code=400, detail="El usuario ya pertenece a esta empresa")
+        elif existing_user.company_id:
+             raise HTTPException(status_code=400, detail="El usuario ya pertenece a otra empresa")
+        else:
+            # Add to company
+            existing_user.company_id = company_id
+            existing_user.role = user_data.role
+            db.commit()
+            return {"status": "success", "message": "Usuario existente añadido a la empresa"}
+            
+    # 3. Create pre-provisioned user
+    new_user = models.User(
+        email=user_data.email,
+        full_name=user_data.full_name,
+        role=user_data.role,
+        company_id=company_id,
+        is_active=True
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return {"status": "success", "user": new_user}

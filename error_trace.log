@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "C:\Users\USUARIO\.gemini\antigravity\scratch\reportpilot_ai\backend\app\routers\reports.py", line 91, in generate_report
+    raise HTTPException(
+fastapi.exceptions.HTTPException: 400: El Tour TOUR-LOCAL-TEST-001 está CERRADO y no admite nuevos reportes.

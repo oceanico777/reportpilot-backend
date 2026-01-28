@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from .database import engine, Base
-from .routers import receipts, reports, auth, exports, users, budgets, tours
+from .routers import receipts, purchases, auth, exports, users, budgets, closures, providers, products, recipes
 import time
 import os
 import sentry_sdk
@@ -50,14 +50,28 @@ app = FastAPI(
 from fastapi.middleware.cors import CORSMiddleware
 
 
+from fastapi.staticfiles import StaticFiles
+
 # CORS configuration
+origins = [
+    "http://localhost:5173",
+    "http://localhost:3000", 
+    "https://reportpilot-frontend.vercel.app",
+    "https://reportpilot-frontend-git-main-oceanico777s-projects.vercel.app"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount uploads directory for static file access
+if not os.path.exists("uploads"):
+    os.makedirs("uploads")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -77,11 +91,14 @@ async def log_requests(request: Request, call_next):
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(receipts.router, prefix="/receipts", tags=["Receipts"])
-app.include_router(reports.router, prefix="/reports", tags=["Reports"])
-app.include_router(exports.router, prefix="/exports", tags=["Exports"])
+app.include_router(purchases.router, tags=["Purchases"])
+app.include_router(products.router, tags=["Products"]) # NEW
+app.include_router(recipes.router, tags=["Recipes"]) # NEW
+app.include_router(providers.router, tags=["Providers"])
+app.include_router(exports.router, tags=["Exports"])
 app.include_router(users.router, tags=["Users"])
 app.include_router(budgets.router, prefix="/budgets", tags=["Budgets"])
-app.include_router(tours.router, tags=["Tours"])
+app.include_router(closures.router, tags=["Closures"])
 
 @app.get("/")
 def read_root():

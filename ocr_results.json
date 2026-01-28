@@ -1,0 +1,32 @@
+[
+  {
+    "vendor": "UN DOS TRES POR MI SAS",
+    "vendor_nit": "900423154-6",
+    "date": "2025-12-20",
+    "amount": 156944.45,
+    "currency": "COP",
+    "category": "Alimentación",
+    "confidence_score": 0.98,
+    "filename": "uploaded_image_0_1766453616313.jpg"
+  },
+  {
+    "vendor": "ORIGEN BISTRO SAS",
+    "vendor_nit": "901245807-7",
+    "date": "2025-12-10",
+    "amount": 143130.0,
+    "currency": "COP",
+    "category": "Alimentación",
+    "confidence_score": 0.98,
+    "filename": "uploaded_image_1_1766453616313.jpg"
+  },
+  {
+    "vendor": "MINI MAL LTDA",
+    "vendor_nit": "900014020-3",
+    "date": "2025-12-20",
+    "amount": 195356.0,
+    "currency": "COP",
+    "category": "Alimentación",
+    "confidence_score": 0.98,
+    "filename": "uploaded_image_2_1766453616313.jpg"
+  }
+]

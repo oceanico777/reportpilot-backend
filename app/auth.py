@@ -20,9 +20,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     # Development Bypass
     if token == "fake-jwt-token-for-auth":
         return {
-            "id": "e9821814-c159-42b7-8742-167812035978", # Mock user ID
-            "email": "guide@reportpilot.com",
-            "role": "user"
+            "id": "aaaaa814-c159-42b7-8742-167812035978", # Mock user ID (Fresh)
+            "email": "admin-test@reportpilot.com",
+            "role": "ADMIN"
         }
     
     try:
@@ -81,6 +81,7 @@ async def get_user_company(
     For MVP/Demo, if no company exists for the user, create one.
     """
     user_id = current_user["id"]
+    print(f"DEBUG: get_user_company called for user {user_id}")
     
     # Check if user exists in DB (sync with Supabase Auth)
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
@@ -142,3 +143,35 @@ async def get_user_company(
             status_code=403, 
             detail="You are not part of any organization. Please provide an Invitation Code."
         )
+
+async def get_current_active_user(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> models.User:
+    """
+    Returns the current active user model, creating it if it doesn't exist (sync with Auth).
+    """
+    user_id = current_user["id"]
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    
+    if not db_user:
+        # Auto-create user
+        db_user = models.User(
+            id=user_id, 
+            email=current_user["email"],
+            full_name=current_user.get("user_metadata", {}).get("full_name"),
+            role=models.UserRole.ADMIN.value # Default
+        )
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        
+    if not db_user.company_id:
+        try:
+            await get_user_company(current_user, db)
+            db.refresh(db_user)
+        except Exception as e:
+            print(f"Error auto-creating company: {e}")
+
+        
+    return db_user

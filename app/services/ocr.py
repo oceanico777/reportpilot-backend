@@ -59,21 +59,33 @@ def process_receipt_with_gemini(file_data: bytes, retries=1) -> dict:
                 model = genai.GenerativeModel(model_name)
                 
                 prompt = """
-                Analiza esta imagen de recibo y extrae la siguiente información en formato JSON:
+                Analiza esta imagen de factura/recibo de compra y extrae la siguiente información en formato JSON:
                 
                 {
-                    "vendor": "nombre del comercio o vendedor",
-                    "vendor_nit": "NIT o RUT del comercio si existe",
-                    "date": "fecha en formato YYYY-MM-DD",
+                    "vendor": "nombre del proveedor/comercio",
+                    "vendor_nit": "NIT/RUT si existe",
+                    "date": "YYYY-MM-DD",
                     "amount": 1234.56,
                     "currency": "COP",
-                    "category": "una de estas: Alimentación, Transporte, Alojamiento, Otros",
-                    "confidence_score": 0.95
+                    "category": "Categoría sugerida (Ej: Carnes, Frutas, Bebidas, Aseo, Mantenimiento)",
+                    "invoice_number": "Número de factura si existe",
+                    "confidence_score": 0.95,
+                    "items": [
+                        {
+                            "name": "nombre producto detallado", 
+                            "qty": 1.0, 
+                            "unit": "kg/lb/unid (detectar si existe)", 
+                            "price": 1000.0, 
+                            "total": 1000.0
+                        }
+                    ]
                 }
                 
-                Solo responde con el objeto JSON puro, sin markdown ni explicaciones.
-                Si no detectas el comercio, usa "Comercio no detectado".
-                Si no detectas el monto, usa 0.
+                Instrucciones Clave:
+                1. Extrae TODOS los items de compra posibles.
+                2. Si la cantidad no es explícita, asume 1.
+                3. 'price' es el precio unitario. 'total' es precio * cantidad.
+                4. Solo responde con el objeto JSON puro.
                 """
                 
                 response = model.generate_content([prompt, img])
@@ -98,20 +110,18 @@ def process_receipt_with_gemini(file_data: bytes, retries=1) -> dict:
                     time.sleep(delay)
                     delay *= 2
                     continue
-                # If we exhausted retries for this model, we move to the next model in models_to_try
                 break
     
-    # If all models fail, return fallback mock
+    # Fallback
     return {
         "vendor": "Comercio no detectado",
         "date": datetime.now().strftime("%Y-%m-%d"),
         "amount": 0.0,
         "currency": "COP",
         "category": "📦 Otros",
-        "confidence_score": 0.1
+        "confidence_score": 0.1,
+        "items": []
     }
-
-
 
 def process_receipt(receipt_id: str):
     """
@@ -128,33 +138,27 @@ def process_receipt(receipt_id: str):
         db.close()
         return
 
-    # 1. Update status to PROCESSING immediately
     try:
         receipt.status = "PROCESSING"
         db.commit()
-        logger.info(f"Status set to PROCESSING for {receipt_id}")
     except Exception as e:
-        logger.error(f"Failed to set initial status for {receipt_id}: {e}")
+        logger.error(f"Failed to set status: {e}")
 
     try:
         # Load file bytes
-        file_bytes = None
-        file_path = receipt.file_url
+        file_path = receipt.storage_path or receipt.file_url
+        from ..services.storage import storage_service
+        file_bytes = storage_service.download_file(file_path)
         
-        if os.path.exists(file_path):
-            with open(file_path, "rb") as f:
-                file_bytes = f.read()
-        else:
-             # Try signed URL if local file is missing (e.g. cloud only)
-             logger.warning(f"Local file not found at {file_path}, can only process if local path is correct.")
-             receipt.status = "FAILED"
-             db.commit()
-             return
+        if not file_bytes and os.path.exists(file_path):
+             with open(file_path, "rb") as f:
+                 file_bytes = f.read()
 
-        # 2. Extract data using Gemini (Optimized model list)
+        if not file_bytes:
+             raise Exception("File bytes extraction failed")
+
         extracted_data = process_receipt_with_gemini(file_bytes)
         
-        # 3. Parse and save result
         date_obj = None
         if extracted_data.get("date"):
             try:
@@ -170,7 +174,8 @@ def process_receipt(receipt_id: str):
             amount=float(extracted_data.get("amount", 0.0)),
             currency=extracted_data.get("currency", "COP"),
             category=extracted_data.get("category", "📦 Otros"),
-            confidence_score=float(extracted_data.get("confidence_score", 0.0))
+            confidence_score=float(extracted_data.get("confidence_score", 0.0)),
+            items=json.dumps(extracted_data.get("items", []))
         )
         
         db.add(parsed_data)

@@ -6,19 +6,22 @@ from ..database import get_db
 from .. import models, schemas
 from ..auth import get_user_company
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/budgets",
+    tags=["budgets"],
+)
 
-@router.post("/", response_model=schemas.TourBudget)
+@router.post("/", response_model=schemas.CategoryBudget)
 def create_or_update_budget(
-    budget_in: schemas.TourBudgetCreate,
+    budget_in: schemas.CategoryBudgetCreate,
     db: Session = Depends(get_db),
     company_id: str = Depends(get_user_company)
 ):
-    # Check if exists
-    existing = db.query(models.TourBudget).filter(
-        models.TourBudget.company_id == company_id,
-        models.TourBudget.tour_id == budget_in.tour_id,
-        models.TourBudget.category == budget_in.category
+    # Check if exists (Category + Period)
+    existing = db.query(models.CategoryBudget).filter(
+        models.CategoryBudget.company_id == company_id,
+        models.CategoryBudget.category == budget_in.category,
+        models.CategoryBudget.period == budget_in.period
     ).first()
 
     if existing:
@@ -27,7 +30,7 @@ def create_or_update_budget(
         db.refresh(existing)
         return existing
     
-    new_budget = models.TourBudget(
+    new_budget = models.CategoryBudget(
         **budget_in.dict(),
         company_id=company_id
     )
@@ -36,56 +39,95 @@ def create_or_update_budget(
     db.refresh(new_budget)
     return new_budget
 
-@router.get("/", response_model=List[schemas.TourBudget])
+@router.get("/", response_model=List[schemas.CategoryBudget])
 def list_budgets(
-    tour_id: Optional[str] = Query(None),
+    period: str = "MONTHLY",
     db: Session = Depends(get_db),
     company_id: str = Depends(get_user_company)
 ):
-    query = db.query(models.TourBudget).filter(models.TourBudget.company_id == company_id)
-    if tour_id:
-        query = query.filter(models.TourBudget.tour_id == tour_id)
+    query = db.query(models.CategoryBudget).filter(
+        models.CategoryBudget.company_id == company_id,
+        models.CategoryBudget.period == period
+    )
     return query.all()
 
-@router.get("/consolidated")
-def get_budget_comparison(
-    tour_id: str = Query(...),
+@router.get("/status")
+def get_budget_status(
+    period: str = "MONTHLY",
+    month: int = Query(default=None), 
+    year: int = Query(default=None),
     db: Session = Depends(get_db),
     company_id: str = Depends(get_user_company)
 ):
     """
-    Compares Planned Budget vs Actual Spend for a specific tour.
+    Compares Budget vs Actual Spend for the current period.
     """
-    # 1. Get Budgets
-    budgets = db.query(models.TourBudget).filter(
-        models.TourBudget.company_id == company_id,
-        models.TourBudget.tour_id == tour_id
+    if not month:
+        from datetime import datetime
+        month = datetime.now().month
+    if not year:
+        from datetime import datetime
+        year = datetime.now().year
+
+    # 1. Get Budgets for the period type
+    budgets = db.query(models.CategoryBudget).filter(
+        models.CategoryBudget.company_id == company_id,
+        models.CategoryBudget.period == period
     ).all()
     
-    # 2. Get Actual Spend per category
+    # 2. Get Actual Spend per category for the specific time range
+    # Assuming period="MONTHLY" implies getting spend for the specific month/year logic
+    # We need to filter Purchases by date range.
+    
+    # Calculate start/end date for month
+    from calendar import monthrange
+    from datetime import date
+    try:
+        start_date = date(year, month, 1)
+        _, last_day = monthrange(year, month)
+        end_date = date(year, month, last_day)
+    except Exception:
+        return {"error": "Invalid date"}
+
     actuals = db.query(
-        models.Report.category,
-        func.sum(models.Report.amount).label("total_spent")
+        models.Purchase.category,
+        func.sum(models.Purchase.amount).label("total_spent")
     ).filter(
-        models.Report.company_id == company_id,
-        models.Report.tour_id == tour_id,
-        models.Report.status == models.ReportStatus.APPROVED.value # Only count approved expenses
-    ).group_by(models.Report.category).all()
+        models.Purchase.company_id == company_id,
+        models.Purchase.date >= start_date,
+        models.Purchase.date <= end_date,
+        models.Purchase.status != models.PurchaseStatus.REJECTED.value 
+    ).group_by(models.Purchase.category).all()
     
     actual_map = {category: amount for category, amount in actuals}
     
     comparison = []
+    # Include all budgeted categories
     for b in budgets:
         spent = actual_map.get(b.category, 0.0)
         comparison.append({
             "category": b.category,
             "budget": b.budget_amount,
             "actual": spent,
-            "diff": b.budget_amount - spent,
+            "remaining": b.budget_amount - spent,
             "percent": (spent / b.budget_amount * 100) if b.budget_amount > 0 else 0
         })
         
+    # Include unbudgeted spend
+    budgeted_cats = [b.category for b in budgets]
+    for cat, amount in actual_map.items():
+        if cat not in budgeted_cats:
+            comparison.append({
+                "category": cat,
+                "budget": 0,
+                "actual": amount,
+                "remaining": -amount,
+                "percent": 100
+            })
+        
     return {
-        "tour_id": tour_id,
+        "period": period,
+        "month": month,
+        "year": year,
         "comparison": comparison
     }

@@ -8,4 +8,4 @@ __pycache__/
 reportpilot.db
 
 # Archivos de configuración local
-.env
+

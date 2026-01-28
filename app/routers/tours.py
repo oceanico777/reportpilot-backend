@@ -12,6 +12,7 @@ import base64
 import os
 import uuid
 from datetime import datetime
+from ..services.email_service import email_service
 # from ..routers.reports import get_tour_summary_data # REMOVED
 
 router = APIRouter(
@@ -31,93 +32,122 @@ async def close_tour(
     signature: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    # 1. Check if already closed
-    existing = db.query(models.TourClosure).filter(models.TourClosure.tour_id == tour_id).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Tour already closed")
-
-    # 2. Get Tour Financial Data & Company Info
-    reports = db.query(models.Report).filter(models.Report.tour_id == tour_id).all()
-    if not reports:
-        raise HTTPException(status_code=404, detail="No reports found for this tour. Cannot close empty tour.")
+    try:
+        # 1. Check if already closed
+        existing = db.query(models.TourClosure).filter(models.TourClosure.tour_id == tour_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Tour already closed")
     
-    company_id = reports[0].company_id
-    guide_name = reports[0].client_name or "Guía"
-
-    # 3. Setup Signature
-    from ..services.storage import storage_service
-    sig_filename = f"{tour_id}_sig_{uuid.uuid4()}.png"
-    sig_path = os.path.join(UPLOAD_DIR, sig_filename)
-    
-    content = await signature.read()
-    with open(sig_path, "wb") as buffer:
-        buffer.write(content)
-    
-    # Upload Signature to Supabase
-    sig_storage_data = storage_service.upload_bytes(content, sig_filename, "image/png", company_id)
-    cloud_sig_path = sig_storage_data.get("storage_path", sig_path)
-    
-    # Absolute path for WeasyPrint template
-    abs_sig_path = os.path.abspath(sig_path)
-    abs_sig_path_uri = f"file:///{abs_sig_path.replace(os.sep, '/')}"
-
-    # 4. Calculate Financials
-    total_advances = 0
-    total_collections = 0
-    total_expenses = 0
-    
-    for r in reports:
-        amount = r.amount or 0
-        if r.category == "ANTICIPO_RECIBIDO":
-            total_advances += amount
-        elif r.category == "RECAUDO_CLIENTE":
-            total_collections += amount
-        else:
-            total_expenses += amount
-            
-    final_balance = (total_advances + total_collections) - total_expenses
-    
-    # Get Company Name
-    company_name = "Empresa de Turismo"
-    company = db.query(models.Company).filter(models.Company.id == company_id).first()
-    if company: company_name = company.name
-
-    tour_data = {
-        "company_name": company_name,
-        "tour_id": tour_id,
-        "guide_name": guide_name,
-        "total_advances": total_advances,
-        "total_collections": total_collections,
-        "total_expenses": total_expenses,
-        "closed_at": datetime.now()
-    }
-
-    # 5. Generate PDF
-    pdf_bytes = generate_clearance_act(tour_data, abs_sig_path_uri)
-    if not pdf_bytes:
-        raise HTTPException(status_code=500, detail="Failed to generate PDF")
+        # 2. Get Tour Financial Data & Company Info
+        reports = db.query(models.Report).filter(models.Report.tour_id == tour_id).all()
+        if not reports:
+            raise HTTPException(status_code=404, detail="No reports found for this tour. Cannot close empty tour.")
         
-    pdf_filename = f"Acta_{tour_id}.pdf"
-    pdf_path = os.path.join(PDF_DIR, pdf_filename)
+        company_id = reports[0].company_id
+        guide_name = reports[0].client_name or "Guía"
     
-    with open(pdf_path, "wb") as f:
-        f.write(pdf_bytes)
+        # 3. Setup Signature
+        from ..services.storage import storage_service
+        sig_filename = f"{tour_id}_sig_{uuid.uuid4()}.png"
+        sig_path = os.path.join(UPLOAD_DIR, sig_filename)
+        
+        content = await signature.read()
+        with open(sig_path, "wb") as buffer:
+            buffer.write(content)
+        
+        # Upload Signature to Supabase
+        sig_storage_data = storage_service.upload_bytes(content, sig_filename, "image/png", company_id)
+        cloud_sig_path = sig_storage_data.get("storage_path", sig_path)
+        
+        # Absolute path for WeasyPrint template
+        abs_sig_path = os.path.abspath(sig_path)
+        abs_sig_path_uri = f"file:///{abs_sig_path.replace(os.sep, '/')}"
+    
+        # 4. Calculate Financials
+        total_advances = 0
+        total_collections = 0
+        total_expenses = 0
+        expense_details = []
+        
+        for r in reports:
+            amount = r.amount or 0
+            if r.category == "ANTICIPO_RECIBIDO":
+                total_advances += amount
+            elif r.category == "RECAUDO_CLIENTE":
+                total_collections += amount
+            else:
+                total_expenses += amount
+                expense_details.append({
+                    "date": r.created_at.strftime("%d/%m/%Y") if r.created_at else "N/A",
+                    "vendor": r.vendor or "N/A",
+                    "vendor_nit": r.vendor_nit or "N/A",
+                    "category": r.category or "📦 Otros",
+                    "amount": amount
+                })
+                
+        final_balance = (total_advances + total_collections) - total_expenses
+        
+        # Get Company Name
+        company_name = "Empresa de Turismo"
+        company = db.query(models.Company).filter(models.Company.id == company_id).first()
+        if company: company_name = company.name
+    
+        tour_data = {
+            "company_name": company_name,
+            "tour_id": tour_id,
+            "guide_name": guide_name,
+            "total_advances": total_advances,
+            "total_collections": total_collections,
+            "total_expenses": total_expenses,
+            "expense_details": expense_details, # New detailed list
+            "closed_at": datetime.now()
+        }
+    
+        # 5. Generate PDF
+        pdf_bytes = generate_clearance_act(tour_data, abs_sig_path_uri)
+        if not pdf_bytes:
+            raise HTTPException(status_code=500, detail="Failed to generate PDF")
             
-    # Upload PDF to Supabase
-    pdf_storage_data = storage_service.upload_bytes(pdf_bytes, pdf_filename, "application/pdf", company_id)
-    cloud_pdf_path = pdf_storage_data.get("storage_path", pdf_path)
-
-    # 6. Create Closure Record
-    closure = models.TourClosure(
-        tour_id=tour_id,
-        company_id=company_id,
-        closed_by_email="guide@reportpilot.com", # Mock for now
-        signature_url=cloud_sig_path,
-        pdf_url=cloud_pdf_path,
-        final_balance=final_balance
-    )
+        pdf_filename = f"Acta_{tour_id}.pdf"
+        pdf_path = os.path.join(PDF_DIR, pdf_filename)
+        
+        with open(pdf_path, "wb") as f:
+            f.write(pdf_bytes)
+                
+        # Upload PDF to Supabase
+        pdf_storage_data = storage_service.upload_bytes(pdf_bytes, pdf_filename, "application/pdf", company_id)
+        cloud_pdf_path = pdf_storage_data.get("storage_path", pdf_path)
     
-    db.add(closure)
-    db.commit()
-
-    return {"status": "success", "message": "Tour closed successfully", "pdf_url": pdf_path}
+        # 6. Create Closure Record
+        closure = models.TourClosure(
+            tour_id=tour_id,
+            company_id=company_id,
+            closed_by_email="guide@reportpilot.com", # Mock for now
+            signature_url=cloud_sig_path,
+            pdf_url=cloud_pdf_path,
+            final_balance=final_balance
+        )
+        
+        db.add(closure)
+        db.commit()
+    
+        # 7. Trigger Email Notification (Background or async simplified)
+        accountant_email = "contabilidad@turismo.com" # Placeholder recipient
+        email_service.send_tour_closure_email(
+            tour_id=tour_id,
+            recipient_email=accountant_email,
+            pdf_path=cloud_pdf_path,
+            guide_name=guide_name
+        )
+    
+        return {"status": "success", "message": "Tour closed successfully", "pdf_url": pdf_path}
+    except Exception as e:
+        import traceback
+        error_msg = traceback.format_exc()
+        try:
+             with open("error_trace.log", "w") as f:
+                 f.write(error_msg)
+        except:
+             pass
+        print(error_msg)
+        raise e

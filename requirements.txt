@@ -18,8 +18,9 @@ pypdf
 google-generativeai
 openpyxl
 pandas
-weasyprint
+fpdf2
 supabase==2.13.0
 celery==5.3.4
 redis==5.0.1
+email-validator
 sentry-sdk[fastapi]==1.39.1

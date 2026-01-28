@@ -11,6 +11,7 @@ from ..database import get_db
 from .. import models, schemas
 from ..services import report_generator
 from ..auth import get_current_user, get_user_company
+from ..services import tasks
 
 router = APIRouter()
 
@@ -18,117 +19,141 @@ router = APIRouter()
 def startup_event():
     pass
 
+@router.post("/admin/export-zip")
+def export_zip_endpoint(
+    month: int = Query(...),
+    year: int = Query(...),
+    status: Optional[str] = Query(None, description="Filter by status: 'paid', 'pending', or None for all"),
+    db: Session = Depends(get_db),
+    company_id: str = Depends(get_user_company)
+):
+    # Run synchronously for immediate download (MVP)
+    # This calls the task function directly instead of queueing it
+    result = tasks.export_receipts_zip(company_id, month, year, status_filter=status)
+    
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    elif result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("message"))
+        
+    return result
+
 @router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    # Create uploads directory if it doesn't exist
-    upload_dir = Path("uploads")
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    from ..services.storage import storage_service
     
-    # Generate unique filename
-    file_extension = Path(file.filename).suffix
-    unique_filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = upload_dir / unique_filename
+    db_user = db.query(models.User).filter(models.User.id == current_user["id"]).first()
+    company_id = db_user.company_id if db_user else "default"
     
-    # Save file
     try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        # Return initial status
+        # Upload to Supabase instead of local
+        upload_result = storage_service.upload_file(file, company_id)
+        
         return {
-            "id": unique_filename, # Use filename as temporary ID
+            "id": upload_result["storage_path"], # Use storage path as ID
             "status": "PROCESSING",
-            "file_path": str(file_path),
-            "extracted_data": None # OCR will happen later
+            "file_path": upload_result["storage_path"],
+            "extracted_data": None
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not save file: {str(e)}")
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not upload file: {str(e)}")
 
 @router.post("/generate", response_model=schemas.Report)
 def generate_report(
     report: schemas.ReportCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    company_id: str = Depends(get_user_company)
 ):
-    user_id = current_user["id"]
-    db_user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not db_user or not db_user.company_id:
-        raise HTTPException(status_code=403, detail="User not linked to a company. Please join an organization.")
-    
-    company_id = db_user.company_id
-    
-    summary = "Reporte pendiente de procesamiento"
-    vendor = None
-    amount = None
-    currency = None
-    category = report.category # Default to manual selection if present
-    existing_duplicate = None
-    
-    # [Start] Read-Only Check for Closed Tours
-    if report.tour_id:
-        closed_tour = db.query(models.TourClosure).filter(
-            models.TourClosure.tour_id == report.tour_id,
-            models.TourClosure.company_id == company_id
-        ).first()
-        if closed_tour:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"El Tour {report.tour_id} está CERRADO y no admite nuevos reportes."
-            )
-    # [End] Read-Only Check
-
-    if report.extracted_data:
-        data = report.extracted_data
-        vendor = data.get('vendor')
-        amount = data.get('amount')
-        currency = data.get('currency')
-        # If no manual category, use AI suggested one
-        if not category:
-            category = data.get('category')
-            
-        summary = (
-            f"Factura de {vendor} del {data.get('date', 'N/A')}. "
-            f"Total: {currency} {amount}. "
-            f"Categoría: {category}"
-        )
+    try:
+        user_id = current_user["id"]
+        # db_user check removed as get_user_company ensures valid company linkage
         
-        # Check for duplicates
-        existing_duplicate = db.query(models.Report).filter(
-            models.Report.company_id == company_id,
-            models.Report.vendor == vendor,
-            models.Report.amount == amount
-        ).first()
-
-    db_report = models.Report(
-        company_id=company_id,
-        user_id=user_id,
-        month=report.month,
-        year=report.year,
-        tour_id=report.tour_id,
-        client_name=report.client_name,
-        vendor=vendor,
-        amount=amount,
-        currency=currency,
-        category=category,
-        source_file_path=report.source_file_path,
-        status=models.ReportStatus.PENDING_REVIEW.value,
-        summary_text=summary,
-        is_duplicate=True if existing_duplicate else False,
-        potential_duplicate_of=existing_duplicate.id if existing_duplicate else None
-    )
-
-    db.add(db_report)
-    db.commit()
-    db.refresh(db_report)
+        summary = "Reporte pendiente de procesamiento"
+        vendor = None
+        amount = None
+        currency = None
+        category = report.category # Default to manual selection if present
+        existing_duplicate = None
+        
+        # [Start] Read-Only Check for Closed Tours
+        if report.tour_id:
+            closed_tour = db.query(models.TourClosure).filter(
+                models.TourClosure.tour_id == report.tour_id,
+                models.TourClosure.company_id == company_id
+            ).first()
+            if closed_tour:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"El Tour {report.tour_id} está CERRADO y no admite nuevos reportes."
+                )
+        # [End] Read-Only Check
     
-    # Always trigger report generation background task
-    background_tasks.add_task(report_generator.create_report, db_report.id, db)
+        if report.extracted_data:
+            data = report.extracted_data
+            vendor = data.get('vendor')
+            amount = data.get('amount')
+            currency = data.get('currency')
+            # If no manual category, use AI suggested one
+            if not category:
+                category = data.get('category')
+                
+            summary = (
+                f"Factura de {vendor} del {data.get('date', 'N/A')}. "
+                f"Total: {currency} {amount}. "
+                f"Categoría: {category}"
+            )
+            
+            # Check for duplicates
+            existing_duplicate = db.query(models.Report).filter(
+                models.Report.company_id == company_id,
+                models.Report.vendor == vendor,
+                models.Report.amount == amount
+            ).first()
     
-    return db_report
+        db_report = models.Report(
+            company_id=company_id,
+            user_id=user_id,
+            month=report.month,
+            year=report.year,
+            tour_id=report.tour_id,
+            client_name=report.client_name,
+            vendor=vendor,
+            amount=amount,
+            currency=currency,
+            category=category,
+            source_file_path=report.source_file_path,
+            status=models.ReportStatus.PROCESSING.value,
+            summary_text=summary,
+            is_duplicate=True if existing_duplicate else False,
+            potential_duplicate_of=existing_duplicate.id if existing_duplicate else None
+        )
+    
+        db.add(db_report)
+        db.commit()
+        db.refresh(db_report)
+        
+        # Always trigger report generation background task
+        # We use create_report but we will modify it to use the robust Gemini logic
+        background_tasks.add_task(report_generator.create_report, db_report.id)
+        
+        return db_report
+    except Exception as e:
+        import traceback
+        error_msg = traceback.format_exc()
+        try:
+            with open("error_trace.log", "w") as f:
+                f.write(error_msg)
+        except:
+             pass
+        print(error_msg) # Keep print just in case
+        raise e
 
 @router.get("/", response_model=List[schemas.Report])
 def list_reports(
@@ -392,7 +417,9 @@ def get_dashboard_stats(
     client_stats = client_stats[:5] # Top 5
     
     recent_activity = []
-    for r in reports[:5]: # Just take first 5 from query result (ideally sort by date desc first)
+    # Sort reports by date desc for recent activity
+    sorted_reports = sorted(reports, key=lambda x: x.created_at, reverse=True)
+    for r in sorted_reports[:5]:
          recent_activity.append({
              "id": r.id,
              "tour_id": r.tour_id,
@@ -400,6 +427,55 @@ def get_dashboard_stats(
              "amount": int(r.amount) if r.amount else 0,
              "category": r.category
          })
+
+    # --- NEW: Active Tour Logic ---
+    active_tour = None
+    latest_report = db.query(models.Report).filter(
+        models.Report.company_id == company_id,
+        models.Report.tour_id != None
+    ).order_by(models.Report.created_at.desc()).first()
+
+    if latest_report:
+        # Check if closed
+        is_closed = db.query(models.TourClosure).filter(
+            models.TourClosure.tour_id == latest_report.tour_id, 
+            models.TourClosure.company_id == company_id
+        ).first()
+        
+        if not is_closed:
+            # Calculate tour summary
+            tour_reports = db.query(models.Report).filter(
+                models.Report.tour_id == latest_report.tour_id,
+                models.Report.company_id == company_id
+            ).all()
+            
+            tour_spent = 0
+            tour_advances = 0
+            for tr in tour_reports:
+                amt = tr.amount or 0
+                if tr.category in ["ANTICIPO_RECIBIDO", "RECAUDO_CLIENTE"]:
+                    tour_advances += amt
+                else:
+                    tour_spent += amt
+            
+            # Get category-specific budgets
+            budgets = db.query(models.TourBudget).filter(
+                models.TourBudget.tour_id == latest_report.tour_id,
+                models.TourBudget.company_id == company_id
+            ).all()
+            
+            total_budget = sum([b.budget_amount for b in budgets])
+            # Use advances as fallback if no budget defined
+            if total_budget == 0:
+                total_budget = tour_advances
+            
+            active_tour = {
+                "tour_id": latest_report.tour_id,
+                "total_spent": int(tour_spent),
+                "total_budget": int(total_budget),
+                "remaining": int(total_budget - tour_spent),
+                "progress": min(100, int((tour_spent / total_budget) * 100)) if total_budget > 0 else 0
+            }
 
     return {
         "total_reports": total_reports,
@@ -409,5 +485,115 @@ def get_dashboard_stats(
         "monthly_stats": monthly_stats,
         "client_stats": client_stats,
         "recent_activity": recent_activity,
-        "category_stats": category_stats
+        "category_stats": category_stats,
+        "active_tour": active_tour
     }
+
+@router.get("/admin/transactions", response_model=List[schemas.Report])
+def list_admin_transactions(
+    month: Optional[int] = Query(None),
+    year: Optional[int] = Query(None),
+    limit: int = 100,
+    skip: int = 0,
+    db: Session = Depends(get_db),
+    company_id: str = Depends(get_user_company)
+):
+    """
+    Returns a flat list of ALL transactions for the company, filtered by period.
+    Designed for the 'Sábana de Datos' view in Accountant Dashboard.
+    """
+    query = db.query(models.Report).filter(models.Report.company_id == company_id)
+    
+    if month:
+        query = query.filter(models.Report.month == month)
+    if year:
+        query = query.filter(models.Report.year == year)
+        
+    return query.order_by(models.Report.created_at.desc()).offset(skip).limit(limit).all()
+
+@router.get("/price-trends", response_model=List[dict])
+def get_price_trends(
+    query: str = Query(..., min_length=2),
+    db: Session = Depends(get_db),
+    company_id: str = Depends(get_user_company)
+):
+    """
+    Returns price history for a given product name (fuzzy search).
+    """
+    # Find items matching the query
+    # Join with Purchase to get the Date
+    # We want: Date, Unit Price
+    
+    # Lowercase for case-insensitivity
+    search_term = f"%{query.lower()}%"
+    
+    results = db.query(
+        models.Purchase.date,
+        func.avg(models.PurchaseItem.unit_price).label('avg_price')
+    ).join(
+        models.PurchaseItem, models.Purchase.id == models.PurchaseItem.purchase_id
+    ).filter(
+        models.Purchase.company_id == company_id,
+        func.lower(models.PurchaseItem.name).like(search_term),
+        models.PurchaseItem.unit_price > 0 # Ignore zero prices
+    ).group_by(
+        models.Purchase.date
+    ).order_by(
+        models.Purchase.date.asc()
+    ).all()
+    
+    # Format
+    return [
+        {"date": r.date.strftime("%Y-%m-%d"), "price": int(r.avg_price)}
+        for r in results
+    ]
+@router.get("/provider-trends", response_model=List[dict])
+def get_provider_trends(
+    months: int = 6,
+    db: Session = Depends(get_db),
+    company_id: str = Depends(get_user_company)
+):
+    """
+    Returns monthly spending trends per provider for the last N months.
+    Output: [{ "month": "Jan", "Coca Cola": 100, "MacPollo": 200 }, ...]
+    """
+    # Calculate start date
+    # Simple logic: Go back N months from today
+    # (For production, better date handling suggested)
+    
+    # query all purchases with provider info
+    # We do python-side aggregation for DB compatibility
+    results = db.query(models.Purchase).options(
+        db.joinedload(models.Purchase.provider)
+    ).filter(
+        models.Purchase.company_id == company_id,
+        models.Purchase.provider_id != None  # Only linked purchases
+    ).order_by(models.Purchase.date.asc()).all()
+    
+    data_map = {} # Key: "YYYY-MM", Value: { "provider_name": amount }
+    
+    for p in results:
+        month_key = p.date.strftime("%b %Y") # e.g. "Jan 2024"
+        prov_name = p.provider.name if p.provider else "Unknown"
+        amount = p.amount or 0
+        
+        if month_key not in data_map:
+            data_map[month_key] = {}
+        
+        data_map[month_key][prov_name] = data_map[month_key].get(prov_name, 0) + amount
+        
+    # Transform to list
+    final_list = []
+    # Sort by date implicitly if we iterate the map keys in order? 
+    # Better to use the known sorted order from the query or sort keys now.
+    # Quick fix: Sort keys by datetime parsing
+    
+    sorted_keys = sorted(data_map.keys(), key=lambda x: datetime.strptime(x, "%b %Y"))
+    
+    for m in sorted_keys:
+        item = {"month": m}
+        item.update(data_map[m])
+        final_list.append(item)
+        
+    # Limit to last N months
+    return final_list[-months:]

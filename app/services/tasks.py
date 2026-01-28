@@ -11,9 +11,12 @@ import os
 
 logger = logging.getLogger(__name__)
 
-def export_receipts_zip(company_id: str, month: int, year: int, user_id: str = None):
+import csv
+
+def export_receipts_zip(company_id: str, month: int, year: int, user_id: str = None, status_filter: str = None):
     """
     Exports receipts for a given period/user matches to a zip file.
+    Includes an Excel-compatible CSV index.
     """
     db: Session = SessionLocal()
     try:
@@ -25,36 +28,67 @@ def export_receipts_zip(company_id: str, month: int, year: int, user_id: str = N
         if user_id:
             query = query.filter(models.Report.user_id == user_id)
         
+        # Filter by status if provided
+        # We assume 'paid' maps to APPROVED (or logic defined by user) and 'pending' to PROCESSING/PENDING
+        # For this MVP, let's look at the 'status' column directly.
+        if status_filter:
+            if status_filter == 'paid':
+                 query = query.filter(models.Report.status == models.ReportStatus.APPROVED.value)
+            elif status_filter == 'pending':
+                 query = query.filter(models.Report.status != models.ReportStatus.APPROVED.value)
+        
         reports = query.all()
         if not reports:
             return {"status": "failed", "message": "No reports found"}
 
         # Create Zip in Memory
         zip_buffer = io.BytesIO()
+        
+        # Prepare CSV Data
+        csv_buffer = io.StringIO()
+        csv_writer = csv.writer(csv_buffer, delimiter=';') # Semicolon for Excel in some locales, or comma
+        csv_writer.writerow(["Fecha", "Proveedor", "Categoría", "Monto", "Impuesto", "Archivo"])
+
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             system_client = storage_service.get_system_client()
             
             for report in reports:
+                # 1. Determine Filename
+                ext = ".bin"
+                if report.source_file_path:
+                    ext = os.path.splitext(report.source_file_path)[1] or ".bin"
+                
+                date_str = report.created_at.strftime('%Y-%m-%d')
+                vendor_safe = "".join(x for x in (report.vendor or "Unknown") if x.isalnum() or x in (' ', '_')).strip()
+                amount_safe = int(report.amount) if report.amount else 0
+                
+                # Format: 2024-03-15_Proveedor_Monto.pdf
+                filename = f"{date_str}_{vendor_safe}_{amount_safe}{ext}"
+                
+                # 2. Add to CSV
+                csv_writer.writerow([
+                    date_str,
+                    report.vendor or "N/A",
+                    report.category or "N/A",
+                    report.amount or 0,
+                    0, # Tax placeholder
+                    filename
+                ])
+
+                # 3. Add to ZIP (if file exists)
                 if not report.source_file_path:
                     continue
                     
                 try:
-                    # Download file
-                    # source_file_path is essentially "bucket_path" in many cases or local path in dev?
-                    # The Model says: source_file_path = Column(String) # Points to receipt storage path 
-                    # Let's assume it stores the storage path (e.g., "receipts/abc.jpg")
-                    
                     file_data = system_client.storage.from_(storage_service.bucket).download(report.source_file_path)
-                    
-                    # Add to zip
-                    # Filename: {date}_{vendor}_{amount}.ext
-                    ext = os.path.splitext(report.source_file_path)[1] or ".bin"
-                    vendor_safe = "".join(x for x in (report.vendor or "unknown") if x.isalnum())
-                    filename = f"Tour{report.tour_id}_{vendor_safe}_{report.amount}{ext}"
                     zip_file.writestr(filename, file_data)
-                    
                 except Exception as e:
                     logger.error(f"Failed to zip report {report.id}: {e}")
+                    # Write error text file instead
+                    zip_file.writestr(f"ERROR_{filename}.txt", f"Could not download file: {str(e)}")
+
+            # Add CSV to Zip
+            zip_file.writestr("Indice_Gastos.csv", csv_buffer.getvalue().encode('utf-8-sig')) # BOM for Excel
         
         zip_buffer.seek(0)
         

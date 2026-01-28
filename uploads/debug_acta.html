@@ -1,0 +1,367 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            @page { margin: 0; size: A4; }
+            body { 
+                font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+                color: #334155; 
+                line-height: 1.5; 
+                font-size: 11px; 
+                margin: 0;
+                padding: 40px;
+                background: #fff;
+            }
+            
+            /* Branding Header */
+            .header { 
+                display: flex; 
+                justify-content: space-between; 
+                align-items: center;
+                border-bottom: 2px solid #e2e8f0; 
+                padding-bottom: 20px; 
+                margin-bottom: 30px; 
+            }
+            .logo-text {
+                font-size: 24px;
+                font-weight: 800;
+                color: #0f172a;
+                letter-spacing: -0.5px;
+            }
+            .logo-sub {
+                color: #64748b;
+                font-size: 10px;
+                font-weight: 500;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+            }
+            .document-title {
+                text-align: right;
+            }
+            .main-title {
+                font-size: 18px;
+                font-weight: 700;
+                color: #0f172a;
+                text-transform: uppercase;
+            }
+            .doc-id {
+                font-family: monospace;
+                color: #64748b;
+                font-size: 11px;
+                margin-top: 4px;
+            }
+
+            /* Info grid */
+            .info-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                margin-bottom: 30px;
+                background: #f8fafc;
+                padding: 15px;
+                border-radius: 8px;
+                border: 1px solid #e2e8f0;
+            }
+            .info-item label {
+                display: block;
+                font-size: 9px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: #64748b;
+                margin-bottom: 2px;
+                font-weight: 600;
+            }
+            .info-item div {
+                font-size: 12px;
+                font-weight: 600;
+                color: #0f172a;
+            }
+
+            /* Tables */
+            table { width: 100%; border-collapse: collapse; }
+            
+            .summary-section { margin-bottom: 30px; }
+            .section-title {
+                font-size: 12px;
+                font-weight: 700;
+                color: #0f172a;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                border-left: 4px solid #2563eb; /* Brand Blue */
+                padding-left: 10px;
+                margin-bottom: 15px;
+            }
+
+            .summary-card {
+                background: #fff;
+                border-radius: 8px;
+                overflow: hidden;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                border: 1px solid #e2e8f0;
+            }
+            .summary-table th {
+                background: #1e293b; /* Dark Slate */
+                color: #fff;
+                font-weight: 600;
+                padding: 10px 15px;
+                font-size: 10px;
+                text-transform: uppercase;
+                text-align: left;
+            }
+            .summary-table td {
+                padding: 10px 15px;
+                border-bottom: 1px solid #f1f5f9;
+                font-size: 11px;
+            }
+            .summary-table tr:last-child td { border-bottom: none; }
+            
+            .total-row {
+                background-color: #f8fafc;
+                font-weight: 700;
+                color: #0f172a;
+            }
+
+            /* Balance Card */
+            .balance-card {
+                margin-top: 20px;
+                background-color: #fef2f2;
+                border: 1px solid #ef444440;
+                border-radius: 8px;
+                padding: 20px;
+                text-align: center;
+            }
+            .balance-label {
+                color: #64748b;
+                font-size: 10px;
+                text-transform: uppercase;
+                font-weight: 600;
+                margin-bottom: 5px;
+            }
+            .balance-amount {
+                color: #ef4444;
+                font-size: 20px;
+                font-weight: 800;
+            }
+            .status-icon { font-size: 16px; vertical-align: middle; margin-right: 5px; }
+
+            /* Details Table */
+            .details-table th {
+                background: #f1f5f9;
+                color: #475569;
+                font-weight: 600;
+                text-transform: uppercase;
+                font-size: 10px;
+                padding: 8px;
+                border-bottom: 2px solid #e2e8f0;
+                text-align: left;
+            }
+            .details-table td {
+                padding: 8px;
+                border-bottom: 1px solid #e2e8f0;
+            }
+            .badge {
+                background: #e2e8f0;
+                color: #475569;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-size: 9px;
+                font-weight: 600;
+            }
+
+            /* Footer & Signature */
+            .bottom-section {
+                margin-top: 40px;
+                page-break-inside: avoid;
+            }
+            .declaration {
+                font-style: italic;
+                color: #64748b;
+                font-size: 10px;
+                background: #fafafa;
+                padding: 15px;
+                border-radius: 6px;
+                border: 1px dashed #cbd5e1;
+                margin-bottom: 30px;
+            }
+            .signatures-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 40px;
+                margin-top: 20px;
+            }
+            .sig-box {
+                text-align: center;
+            }
+            .sig-line {
+                border-top: 1px solid #0f172a;
+                margin-top: 40px;
+                margin-bottom: 5px;
+            }
+            .sig-name { font-weight: 700; color: #0f172a; font-size: 11px; }
+            .sig-role { color: #64748b; font-size: 10px; text-transform: uppercase; }
+            
+            .sig-img {
+                height: 50px;
+                margin-bottom: -40px; /* Overlap line */
+                position: relative;
+                z-index: 1;
+            }
+
+            .footer-branding {
+                position: fixed;
+                bottom: 20px;
+                left: 40px;
+                right: 40px;
+                text-align: center;
+                color: #94a3b8;
+                font-size: 9px;
+                border-top: 1px solid #f1f5f9;
+                padding-top: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <div class="logo-text">ReportPilot</div>
+                <div class="logo-sub">Expense Management</div>
+            </div>
+            <div class="document-title">
+                <div class="main-title">Acta de Liquidación</div>
+                <div class="doc-id">#TOUR-LOCAL-c8c71d01</div>
+            </div>
+        </div>
+
+        <!-- Info Grid -->
+        <div class="info-grid">
+            <div class="info-item">
+                <label>Responsable / Guía</label>
+                <div>Cliente de Prueba</div>
+            </div>
+            <div class="info-item">
+                <label>Fecha de Cierre</label>
+                <div>22/12/2025 21:09</div>
+            </div>
+            <div class="info-item">
+                <label>Empresa</label>
+                <div>admin-test@reportpilot.com's Organization</div>
+            </div>
+            <div class="info-item">
+                <label>Estado</label>
+                <div>Validado</div>
+            </div>
+        </div>
+
+        <!-- Financial Summary -->
+        <div class="summary-section">
+            <div class="section-title">Resumen Financiero</div>
+            <div class="summary-card">
+                <table class="summary-table">
+                    <thead>
+                        <tr>
+                            <th>Concepto</th>
+                            <th style="text-align: right;">Monto</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>(+) Asignación Inicial (Anticipos)</td>
+                            <td style="text-align: right;">$600,000</td>
+                        </tr>
+                        <tr>
+                            <td>(+) Recaudos en Ruta</td>
+                            <td style="text-align: right;">$0</td>
+                        </tr>
+                        <tr class="total-row">
+                            <td>(=) Total Responsabilidad</td>
+                            <td style="text-align: right;">$600,000</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #ef4444;">(-) Gastos Legalizados</td>
+                            <td style="text-align: right; color: #ef4444;">-$495,430</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Balance Result -->
+            <div class="balance-card">
+                <div class="balance-label">Balance Final de Liquidación</div>
+                <div class="balance-amount"><span class="status-icon">⚠️</span> EL GUÍA DEBE REINTEGRAR: $104,570 COP</div>
+            </div>
+        </div>
+
+        <!-- Expense Details -->
+        <div class="summary-section">
+            <div class="section-title">Detalle de Gastos</div>
+            <table class="details-table">
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">Fecha</th>
+                        <th style="width: 25%;">Proveedor</th>
+                        <th style="width: 15%;">NIT</th>
+                        <th style="width: 20%;">Categoría</th>
+                        <th style="width: 25%; text-align: right;">Monto</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+        <tr>
+            <td style="color: #64748b;">23/12/2025</td>
+            <td style="font-weight: 500; color: #1e293b;">UN DOS TRES POR MI SAS</td>
+            <td style="color: #64748b; font-family: monospace;">N/A</td>
+            <td><span class="badge">Alimentacion</span></td>
+            <td style="text-align: right; font-weight: 600; font-family: 'Courier New', monospace;">$156,944</td>
+        </tr>
+        
+        <tr>
+            <td style="color: #64748b;">23/12/2025</td>
+            <td style="font-weight: 500; color: #1e293b;">ORIGEN BISTRO SAS</td>
+            <td style="color: #64748b; font-family: monospace;">N/A</td>
+            <td><span class="badge">Alimentacion</span></td>
+            <td style="text-align: right; font-weight: 600; font-family: 'Courier New', monospace;">$143,130</td>
+        </tr>
+        
+        <tr>
+            <td style="color: #64748b;">23/12/2025</td>
+            <td style="font-weight: 500; color: #1e293b;">MINI MAL LTDA</td>
+            <td style="color: #64748b; font-family: monospace;">N/A</td>
+            <td><span class="badge">Alimentacion</span></td>
+            <td style="text-align: right; font-weight: 600; font-family: 'Courier New', monospace;">$195,356</td>
+        </tr>
+        
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Signatures -->
+        <div class="bottom-section">
+            <div class="declaration">
+                Declaración de conformidad: Certifico que los gastos aquí detallados corresponden a la ejecución real de mis actividades laborales y que los soportes adjuntos son verídicos. Acepto el balance final resultante de esta auditoría automática.
+            </div>
+
+            <div class="signatures-grid">
+                <div class="sig-box">
+                    <img src="file:///C:/Users/USUARIO/.gemini/antigravity/scratch/reportpilot_ai/backend/uploads/signatures/TOUR-LOCAL-c8c71d01_sig_f30b9eda-4dbb-43a4-919a-29b0c2c96acd.png" class="sig-img" alt="Firma"/>
+                    <div class="sig-line"></div>
+                    <div class="sig-name">Cliente de Prueba</div>
+                    <div class="sig-role">Firma Responsable</div>
+                </div>
+                <div class="sig-box">
+                    <div style="height: 50px;"></div>
+                    <div class="sig-line"></div>
+                    <div class="sig-name">ReportPilot</div>
+                    <div class="sig-role">Auditoría Automática</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-branding">
+            Generated by ReportPilot • 2025-12-22 21:09:46
+        </div>
+    </body>
+    </html>
+    

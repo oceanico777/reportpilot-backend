@@ -1,8 +1,8 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Enum, Text, Date, Index, Boolean
+from sqlalchemy import Column, String, Integer, Float, ForeignKey, Boolean, DateTime, Date, Text, Index
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID
+from .database import Base
 import uuid
-import enum
+import enum  # Added missing import
 from datetime import datetime
 from .database import Base
 
@@ -12,19 +12,21 @@ class ReceiptStatus(str, enum.Enum):
     PROCESSED = "PROCESSED"
     FAILED = "FAILED"
 
-class ReportStatus(str, enum.Enum):
+class PurchaseStatus(str, enum.Enum):
     PENDING_REVIEW = "PENDING_REVIEW"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     DRAFT = "DRAFT"
+    PROCESSING = "PROCESSING"
+    PROCESSED = "PROCESSED"
     FAILED = "FAILED"
 
 def generate_uuid():
     return str(uuid.uuid4())
 
 class UserRole(str, enum.Enum):
-    ADMIN = "ADMIN"
-    GUIDE = "GUIDE"
+    ADMIN = "ADMIN" # Owner/Manager
+    STAFF = "STAFF" # Waiter/Chef
 
 class User(Base):
     __tablename__ = "users"
@@ -55,7 +57,42 @@ class Company(Base):
     members = relationship("User", back_populates="company_membership", foreign_keys="User.company_id")
     
     receipts = relationship("Receipt", back_populates="company")
-    reports = relationship("Report", back_populates="company")
+    purchases = relationship("Purchase", back_populates="company")
+    providers = relationship("Provider", back_populates="company")
+    products = relationship("Product", back_populates="company")
+
+class Provider(Base):
+    __tablename__ = "providers"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
+    
+    name = Column(String, nullable=False)
+    contact_name = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    category = Column(String, nullable=True) # e.g., 'Meat', 'Vegetables'
+    frequency = Column(String, nullable=True) # e.g., 'Weekly', 'Daily'
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    company = relationship("Company", back_populates="providers")
+    products = relationship("Product", back_populates="provider")
+    purchases = relationship("Purchase", back_populates="provider")
+
+class Product(Base):
+    __tablename__ = "products"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
+    provider_id = Column(String, ForeignKey("providers.id"), nullable=True)
+    
+    name = Column(String, nullable=False)
+    unit = Column(String, default="unit") # kg, lb, lt, unit
+    last_price = Column(Float, default=0.0)
+    
+    company = relationship("Company", back_populates="products")
+    provider = relationship("Provider", back_populates="products")
 
 class Receipt(Base):
     __tablename__ = "receipts"
@@ -94,57 +131,102 @@ class ParsedData(Base):
     currency = Column(String)
     category = Column(String)
     confidence_score = Column(Float)
+    
+    # Items extracted from receipt
+    items = Column(Text, nullable=True) # JSON list of items found
 
     receipt = relationship("Receipt", back_populates="parsed_data")
 
-class Report(Base):
-    __tablename__ = "reports"
+class Purchase(Base):
+    __tablename__ = "purchases" # Was reports
 
     id = Column(String, primary_key=True, default=generate_uuid)
     company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
-    user_id = Column(String, ForeignKey("users.id"), nullable=True) # Guide who created the report
+    user_id = Column(String, ForeignKey("users.id"), nullable=True) # Who registered it
+    provider_id = Column(String, ForeignKey("providers.id"), nullable=True)
     
-    month = Column(Integer)
-    year = Column(Integer)
-    tour_id = Column(String)
-    client_name = Column(String)
+    date = Column(Date, nullable=False) # Purchase date
     
-    # Generative AI Data (Flattened for easier reporting)
-    vendor = Column(String, nullable=True)
-    vendor_nit = Column(String, nullable=True) # Tax ID
+    # Generative AI Data (Flattened)
+    invoice_number = Column(String, nullable=True)
     amount = Column(Float, nullable=True)
     currency = Column(String, nullable=True)
-    category = Column(String, nullable=True)
+    category = Column(String, nullable=True) # Expense category
     
     # Duplicate Detection
     is_duplicate = Column(Boolean, default=False)
-    potential_duplicate_of = Column(String, nullable=True) # ID of the original report
+    potential_duplicate_of = Column(String, nullable=True) 
 
-    # Generative AI Summary
-    summary_text = Column(Text)
+    # Notes
+    notes = Column(Text)
     
     # File Storage
-    storage_path = Column(String, nullable=True) # If generating PDF report
+    storage_path = Column(String, nullable=True) 
     file_url = Column(String, nullable=True)
-    source_file_path = Column(String) # Points to receipt storage path if 1-to-1, or just metadata
+    source_file_path = Column(String) # Points to receipt storage path
     
-    status = Column(String, default=ReportStatus.DRAFT.value)
+    status = Column(String, default=PurchaseStatus.DRAFT.value)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    company = relationship("Company", back_populates="reports")
+    company = relationship("Company", back_populates="purchases")
+    provider = relationship("Provider", back_populates="purchases")
     
     __table_args__ = (
-        Index('idx_report_company_date', 'company_id', 'created_at'),
+        Index('idx_purchase_company_date', 'company_id', 'date'),
     )
+    
+    items = relationship("PurchaseItem", back_populates="purchase", cascade="all, delete-orphan")
 
-class TourBudget(Base):
-    __tablename__ = "tour_budgets"
+class PurchaseItem(Base):
+    __tablename__ = "purchase_items"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    purchase_id = Column(String, ForeignKey("purchases.id"), nullable=False, index=True)
+    
+    name = Column(String, nullable=False)
+    quantity = Column(Float, default=1.0)
+    unit = Column(String, nullable=True) # kg, lb, unit
+    unit_price = Column(Float, default=0.0)
+    total_price = Column(Float, default=0.0)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    purchase = relationship("Purchase", back_populates="items")
+
+class Recipe(Base):
+    __tablename__ = "recipes"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    company_id = Column(String, ForeignKey("companies.id"))
+    name = Column(String)
+    sale_price = Column(Float, default=0.0) # Price on Menu
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationship
+    items = relationship("RecipeItem", back_populates="recipe", cascade="all, delete-orphan")
+    
+class RecipeItem(Base):
+    __tablename__ = "recipe_items"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    recipe_id = Column(String, ForeignKey("recipes.id"))
+    product_id = Column(String, ForeignKey("products.id")) # Link to Inventory
+    quantity = Column(Float, default=0.0) # Amount used (e.g. 0.2 kg)
+    
+    recipe = relationship("Recipe", back_populates="items")
+    product = relationship("Product") # To get current price for cost calc
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # company = relationship("Company") # Removed: No FK and redundant (access via recipe.company)
+
+class CategoryBudget(Base):
+    __tablename__ = "category_budgets"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
     
-    tour_id = Column(String, nullable=False, index=True)
+    period = Column(String, default="MONTHLY") # WEEKLY, MONTHLY
     category = Column(String, nullable=False)
     budget_amount = Column(Float, nullable=False)
     
@@ -153,22 +235,21 @@ class TourBudget(Base):
 
     company = relationship("Company")
 
-    __table_args__ = (
-        Index('idx_tour_budget_company_tour', 'company_id', 'tour_id'),
-    )
+class DailyClosure(Base):
+    __tablename__ = "daily_closures" # Was TourClosure
 
-class TourClosure(Base):
-    __tablename__ = "tour_closures"
-
-    tour_id = Column(String, primary_key=True) # Manually entered Tour ID
+    id = Column(String, primary_key=True, default=generate_uuid)
     company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
     
+    date = Column(Date, nullable=False)
     closed_at = Column(DateTime, default=datetime.utcnow)
-    closed_by_email = Column(String) # Snapshot of who closed it
+    closed_by_email = Column(String) 
     
-    signature_url = Column(String, nullable=True) # Path to signature image
-    pdf_url = Column(String, nullable=True) # Path to generated Acta
+    total_sales = Column(Float, default=0.0)
+    total_expenses = Column(Float, default=0.0)
+    cash_in_hand = Column(Float, default=0.0)
     
-    final_balance = Column(Float, default=0.0)
+    notes = Column(Text, nullable=True)
     
     company = relationship("Company")
+

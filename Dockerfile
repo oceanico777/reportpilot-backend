@@ -29,8 +29,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia el resto del código de tu aplicación al contenedor
 COPY . .
 
-# Expone el puerto que usará tu aplicación
-EXPOSE 10000
+# Expone el puerto que usará tu aplicación (Render proporciona $PORT)
+ENV PORT=10000
+EXPOSE ${PORT}
 
-# Comando para ejecutar la aplicación
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"]
+# Comando para ejecutar la aplicación usando shell form para permitir substitución de variables
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
